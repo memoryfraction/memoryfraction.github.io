@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NuGet Download Stats · memoryfraction</title>
+<meta name="description" content="Interactive NuGet download charts — day / week / month granularity, live cumulative totals. Data: nuget.org + daily snapshots.">
+<meta name="color-scheme" content="light">
+<style>
+:root{
+  --bg:#f6f8fa; --panel:#ffffff; --ink:#1f2328; --muted:#59636e; --line:#d1d9e0;
+  --accent:#0969da; --blue:#1f77b4; --orange:#ff7f0e; --green:#2ca02c;
+  --shadow:0 1px 3px rgba(27,31,36,.08),0 8px 24px rgba(27,31,36,.06);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1060px;margin:0 auto;padding:28px 20px 64px}
+header h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+header .sub{color:var(--muted);margin:0 0 18px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:18px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg button{appearance:none;border:0;background:transparent;padding:7px 14px;font-size:13.5px;cursor:pointer;color:var(--ink);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button.active{background:var(--accent);color:#fff;font-weight:600}
+.seg button:disabled{color:#9aa4af;cursor:not-allowed}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:7px 14px;font-size:13.5px;cursor:pointer;color:var(--ink)}
+.btn:hover{border-color:#afb8c1}
+.status{font-size:12.5px;color:var(--muted);margin-left:auto}
+.status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#8250df;margin-right:6px}
+.status .dot.ok{background:#2da44e}
+.status .dot.err{background:#cf222e}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px 18px;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c,#888)}
+.card .name{font-weight:650;font-size:14.5px;margin-bottom:2px}
+.card .pid{color:var(--muted);font-size:12px;word-break:break-all}
+.card .big{font-size:30px;font-weight:700;margin:10px 0 2px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.card .delta{font-size:12.5px;color:var(--muted)}
+.card .delta b{color:var(--ink)}
+.chip{display:inline-block;margin-top:10px;font-size:11.5px;padding:2px 9px;border-radius:999px;background:#eef2f6;color:var(--muted);border:1px solid var(--line)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:18px 18px 12px;margin-bottom:18px}
+.panel h2{font-size:15.5px;margin:0 0 2px}
+.panel .hint{color:var(--muted);font-size:12.5px;margin:0 0 10px}
+.chart{width:100%;height:auto;display:block}
+.chart .grid{stroke:#e6ebf1;stroke-width:1}
+.chart .axis{stroke:var(--line);stroke-width:1}
+.chart .tick{font-size:10.5px;fill:var(--muted)}
+.chart .axtitle{font-size:10.5px;fill:var(--muted);font-weight:600}
+.chart .bar{opacity:.88}
+.chart .cum{fill:none;stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+.chart .pt{stroke:#fff;stroke-width:1.2}
+.chart .none{fill:#9aa4af;font-size:12px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:6px 0 2px}
+.legend .k{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend .k.line{height:3px;width:16px;border-radius:2px;vertical-align:3px}
+.note{background:#f6f8fa;border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:13px;color:#3d4752}
+.note h3{margin:0 0 8px;font-size:13.5px}
+.note ul{margin:6px 0 0;padding-left:20px}
+.note li{margin:4px 0}
+.note .zh{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
+.note code{background:#eef2f6;padding:1px 6px;border-radius:5px;font-size:12px}
+footer{color:var(--muted);font-size:12px;margin-top:26px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+a{color:var(--accent)}
+.errbox{background:#fff8f7;border:1px solid #ffcecb;border-radius:10px;padding:12px 14px;color:#a40e26;font-size:13px;margin-bottom:16px;display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📦 NuGet Download Stats <span style="color:var(--muted);font-weight:500;font-size:18px">动态下载图表</span></h1>
+    <p class="sub">memoryfraction · <a href="https://github.com/memoryfraction/memoryfraction">GitHub</a> · data: nuget.org live totals + daily snapshots (<code>stats/history.jsonl</code>)</p>
+  </header>
+
+  <div class="errbox" id="errbox"></div>
+
+  <div class="toolbar">
+    <div class="seg" id="seg">
+      <button data-g="day" class="active">Day 日</button>
+      <button data-g="week">Week 周</button>
+      <button data-g="month">Month 月</button>
+    </div>
+    <button class="btn" id="refresh">↻ Refresh 刷新</button>
+    <span class="status"><span class="dot" id="sdot"></span><span id="stext">loading…</span></span>
+  </div>
+
+  <section class="cards" id="cards"></section>
+
+  <div class="panel">
+    <h2>Period downloads + cumulative trend</h2>
+    <p class="hint">Bars = downloads in the selected period (day / ISO-week / calendar-month); line = cumulative lifetime total at period end. 柱 = 当期下载量；线 = 期末累计总量。</p>
+    <div id="charts"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Per-version breakdown（按版本，最新快照）</h2>
+    <p class="hint">Latest snapshot · NuGet only publishes lifetime-cumulative per-version totals.</p>
+    <div id="versions"></div>
+  </div>
+
+  <div class="note">
+    <h3>📊 Data source &amp; granularity 数据源与粒度</h3>
+    <ul>
+      <li>NUGET public APIs expose <b>lifetime cumulative</b> downloads only (per package / per version). The official v3 stats time-series API is gone (all endpoints return 404 — verified 2026-08; no <code>Stats</code> resource in the v3 service index).</li>
+      <li><b>Finest granularity = DAY</b>: a GitHub Actions workflow snapshots the cumulative counters once per day (11:30 UTC); a day's downloads = difference between consecutive snapshots.</li>
+      <li><b>Week / Month</b> views are calendar aggregations (ISO week / calendar month) of the daily deltas — derived, not native data.</li>
+      <li><b>Sub-day (hourly) precision is not possible</b> — the data source does not provide it.</li>
+      <li>NuGet's counters update with a lag (hours), so the latest day may be under-counted until the next snapshot.</li>
+    </ul>
+    <div class="zh">
+      <ul>
+        <li>NuGet 公开 API 只提供<b>累计总下载量</b>（按包 / 按版本）。官方 v3 统计时间序列接口已下线（2026-08 实测全部 404，v3 service index 中也没有 Stats 资源）。</li>
+        <li><b>最细粒度 = 天</b>：GitHub Actions 每天 11:30 UTC 快照一次累计计数，某天的下载量 = 相邻两次快照的差值。</li>
+        <li><b>周 / 月</b>视图 = 按日历周（ISO）/ 日历月对日增量做的聚合，属于推导值，不是 NuGet 原生数据。</li>
+        <li><b>小时级更细的粒度：数据源不支持。</b></li>
+        <li>NuGet 计数器本身有数小时延迟，最近一天可能要等下一次快照才完整。</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <span id="fmeta">—</span>
+    <span>auto-refreshes every 2 min · 每 2 分钟自动刷新</span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+var PACKAGES = [
+  { id: "HealthData.Interop.Fhir", short: "FHIR Interop", color: "#1f77b4" },
+  { id: "Quant.Infra.Net", short: "Quant", color: "#ff7f0e" },
+  { id: "LightningLocationSystemDataAnalyzer-LLDSA", short: "LLDSA", color: "#2ca02c" }
+];
+var SEARCH_URL = "https://azuresearch-usnc.nuget.org/query";
+var HISTORY_URL = "history.jsonl";
+var hist = [];
+var liveData = {};
+var granularity = "day";
+var lastSnapshot = null;
+
+function $(id) { return document.getElementById(id); }
+function fmt(n) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  var s = String(Math.round(Math.abs(n)));
+  var neg = n < 0 ? "-" : "";
+  var out = "", c = 0;
+  for (var i = s.length - 1; i >= 0; i--) {
+    out = s[i] + out;
+    c++;
+    if (c % 3 === 0 && i > 0) out = "," + out;
+  }
+  return neg + out;
+}
+function esc(t) {
+  return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function dayStr(d) { return d.toISOString().slice(0, 10); }
+function weekStart(dstr) {
+  var d = new Date(dstr + "T00:00:00Z");
+  var dow = (d.getUTCDay() + 6) % 7;
+  var ms = d.getTime() - dow * 86400000;
+  return dayStr(new Date(ms));
+}
+function bucketKey(dstr, g) {
+  if (g === "week") return weekStart(dstr);
+  if (g === "month") return dstr.slice(0, 7);
+  return dstr;
+}
+function bucketLabel(key, g) {
+  if (g === "week") {
+    var end = new Date(key + "T00:00:00Z");
+    end.setUTCDate(end.getUTCDate() + 6);
+    return key + " ~ " + end.toISOString().slice(5, 10);
+  }
+  return key;
+}
+function niceCeil(v) {
+  if (v <= 0) return 1;
+  var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+  var m = v / p;
+  var f = m <= 1 ? 1 : (m <= 2 ? 2 : (m <= 5 ? 5 : 10));
+  return f * p;
+}
+
+function seriesFor(pkg) {
+  var totals = {}, daily = {}, order = [];
+  var prev = null;
+  for (var i = 0; i < hist.length; i++) {
+    var h = hist[i];
+    var p = (h.packages || {})[pkg.id];
+    if (!p) continue;
+    var t = p.total;
+    totals[h.date] = t;
+    if (order.indexOf(h.date) < 0) order.push(h.date);
+    if (prev !== null) daily[h.date] = Math.max(0, t - prev);
+    prev = t;
+  }
+  var buckets = {};
+  var dates = Object.keys(daily);
+  for (i = 0; i < dates.length; i++) {
+    var k = bucketKey(dates[i], granularity);
+    if (!buckets[k]) buckets[k] = { sum: 0, known: true };
+    buckets[k].sum += daily[dates[i]];
+  }
+  var tdates = Object.keys(totals);
+  for (i = 0; i < tdates.length; i++) {
+    var k2 = bucketKey(tdates[i], granularity);
+    if (!buckets[k2]) buckets[k2] = { sum: 0, known: false };
+    if (buckets[k2].cum === undefined || tdates[i] > (buckets[k2].lastDate || "")) {
+      buckets[k2].cum = totals[tdates[i]];
+      buckets[k2].lastDate = tdates[i];
+    }
+  }
+  var keys = Object.keys(buckets).sort();
+  var dl = [], cum = [];
+  for (i = 0; i < keys.length; i++) {
+    var b = buckets[keys[i]];
+    dl.push(b.known ? b.sum : null);
+    cum.push(b.cum !== undefined ? b.cum : null);
+  }
+  return { keys: keys, downloads: dl, cumulative: cum };
+}
+
+function svgEl(tag, attrs) {
+  var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (var k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function drawChart(container, pkg) {
+  var s = seriesFor(pkg);
+  var W = 560, H = 250, L = 60, R = 66, T = 16, B = 40;
+  var iw = W - L - R, ih = H - T - B;
+  var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", "aria-label": pkg.short + " downloads chart" });
+  var n = s.keys.length;
+
+  if (n === 0) {
+    var t = svgEl("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "none" });
+    t.textContent = "no snapshots yet — history.jsonl is empty for this package";
+    svg.appendChild(t);
+    container.appendChild(svg);
+    return;
+  }
+
+  var dlVals = s.downloads.filter(function (v) { return v !== null; });
+  var cumVals = s.cumulative.filter(function (v) { return v !== null; });
+  var dlMax = dlVals.length ? Math.max.apply(null, dlVals) : 0;
+  var dlTop = niceCeil(Math.max(dlMax * 1.15, 1));
+  var c0 = cumVals.length ? Math.min.apply(null, cumVals) : 0;
+  var c1 = cumVals.length ? Math.max.apply(null, cumVals) : 0;
+  if (c1 === c0) { var pad = Math.max(c0 * 0.08, 5); c0 = c0 - pad; c1 = c1 + pad; }
+  if (c0 < 0) c0 = 0;
+
+  function xAt(i) { var step = iw / n; return L + step * i + step / 2; }
+  function yDl(v) { return T + ih - (v / dlTop) * ih; }
+  function yCum(v) { return T + ih - ((v - c0) / (c1 - c0)) * ih; }
+
+  for (var gi = 0; gi <= 4; gi++) {
+    var y = T + (ih / 4) * gi;
+    svg.appendChild(svgEl("line", { x1: L, y1: y, x2: W - R, y2: y, class: "grid" }));
+    var ltv = Math.round(dlTop - (dlTop / 4) * gi);
+    var lt = svgEl("text", { x: L - 8, y: y + 3.5, "text-anchor": "end", class: "tick" });
+    lt.textContent = fmt(ltv);
+    svg.appendChild(lt);
+    var rtv = Math.round(c1 - ((c1 - c0) / 4) * gi);
+    var rt = svgEl("text", { x: W - R + 8, y: y + 3.5, "text-anchor": "start", class: "tick" });
+    rt.textContent = fmt(rtv);
+    svg.appendChild(rt);
+  }
+  svg.appendChild(svgEl("line", { x1: L, y1: T, x2: L, y2: T + ih, class: "axis" }));
+  svg.appendChild(svgEl("line", { x1: W - R, y1: T, x2: W - R, y2: T + ih, class: "axis" }));
+  svg.appendChild(svgEl("line", { x1: L, y1: T + ih, x2: W - R, y2: T + ih, class: "axis" }));
+
+  var step = iw / n;
+  var bw = Math.min(step * 0.58, 46);
+  var showEvery = Math.max(1, Math.ceil(n / 8));
+
+  for (var i = 0; i < n; i++) {
+    var key = s.keys[i], label = bucketLabel(key, granularity);
+    var v = s.downloads[i];
+    if (v !== null && v >= 0) {
+      var bh = Math.max(1, (v / dlTop) * ih);
+      var bar = svgEl("rect", {
+        x: xAt(i) - bw / 2, y: T + ih - bh, width: bw, height: bh,
+        rx: 2, class: "bar", fill: pkg.color
+      });
+      var tip = svgEl("title", {});
+      tip.textContent = label + "\ndownloads: " + fmt(v) + "\ncumulative: " + (s.cumulative[i] !== null ? fmt(s.cumulative[i]) : "—");
+      bar.appendChild(tip);
+      svg.appendChild(bar);
+    }
+    if (i % showEvery === 0 || i === n - 1) {
+      var xt = svgEl("text", { x: xAt(i), y: T + ih + 16, "text-anchor": "middle", class: "tick" });
+      xt.textContent = (granularity === "month") ? key : (granularity === "week" ? key.slice(5) : key.slice(5));
+      svg.appendChild(xt);
+    }
+  }
+
+  var linePts = [];
+  for (i = 0; i < n; i++) {
+    if (s.cumulative[i] !== null) linePts.push({ x: xAt(i), y: yCum(s.cumulative[i]), i: i });
+  }
+  if (linePts.length > 1) {
+    var d = "";
+    for (i = 0; i < linePts.length; i++) {
+      d += (i === 0 ? "M" : "L") + linePts[i].x.toFixed(1) + " " + linePts[i].y.toFixed(1);
+    }
+    svg.appendChild(svgEl("path", { d: d, class: "cum", stroke: pkg.color }));
+  }
+  for (i = 0; i < linePts.length; i++) {
+    var idx = linePts[i].i;
+    var dot = svgEl("circle", { cx: linePts[i].x, cy: linePts[i].y, r: 3.4, class: "pt", fill: pkg.color });
+    var tip2 = svgEl("title", {});
+    tip2.textContent = bucketLabel(s.keys[idx], granularity) + "\ncumulative: " + fmt(s.cumulative[idx]) + (s.downloads[idx] !== null ? "\ndownloads: " + fmt(s.downloads[idx]) : "");
+    dot.appendChild(tip2);
+    svg.appendChild(dot);
+  }
+
+  var lt2 = svgEl("text", { x: L, y: T - 4, class: "axtitle" });
+  lt2.textContent = "period downloads 当期下载";
+  svg.appendChild(lt2);
+  var lt3 = svgEl("text", { x: W - R, y: T - 4, "text-anchor": "end", class: "axtitle" });
+  lt3.textContent = "cumulative 累计";
+  svg.appendChild(lt3);
+
+  container.appendChild(svg);
+}
+
+function renderCharts() {
+  var box = $("charts");
+  box.innerHTML = "";
+  for (var i = 0; i < PACKAGES.length; i++) {
+    (function (pkg) {
+      var div = document.createElement("div");
+      div.style.marginBottom = "18px";
+      var h = document.createElement("h3");
+      h.style.cssText = "font-size:14px;margin:0 0 6px";
+      h.innerHTML = "<span style=\"display:inline-block;width:10px;height:10px;border-radius:3px;background:" + pkg.color + ";margin-right:8px\"></span>" + esc(pkg.short) + " <span style=\"color:#8c959f;font-weight:400;font-size:12px\">" + esc(pkg.id) + "</span>";
+      div.appendChild(h);
+      drawChart(div, pkg);
+      box.appendChild(div);
+    })(PACKAGES[i]);
+  }
+}
+
+function renderCards() {
+  var box = $("cards");
+  box.innerHTML = "";
+  var lastRec = hist.length ? hist[hist.length - 1] : null;
+  for (var i = 0; i < PACKAGES.length; i++) {
+    (function (pkg) {
+      var live = liveData[pkg.id];
+      var snap = lastRec && lastRec.packages ? lastRec.packages[pkg.id] : null;
+      var card = document.createElement("div");
+      card.className = "card";
+      card.style.setProperty("--c", pkg.color);
+      var total = live ? live.total : (snap ? snap.total : null);
+      var html = "";
+      html += "<div class=\"name\">" + esc(pkg.short) + "</div>";
+      html += "<div class=\"pid\">" + esc(pkg.id) + "</div>";
+      html += "<div class=\"big\">" + (total !== null ? fmt(total) : "—") + "</div>";
+      if (live && snap) {
+        var d = live.total - snap.total;
+        html += "<div class=\"delta\">" + (d >= 0 ? "+" : "") + "<b>" + fmt(d) + "</b> since snapshot " + esc(snap && lastRec ? lastRec.date : "") + "</div>";
+      } else if (snap) {
+        html += "<div class=\"delta\">snapshot " + esc(lastRec ? lastRec.date : "") + " · live fetch failed</div>";
+      } else {
+        html += "<div class=\"delta\">no data yet</div>";
+      }
+      if (live && live.latest) html += "<span class=\"chip\">latest " + esc(live.latest) + "</span>";
+      card.innerHTML = html;
+      box.appendChild(card);
+    })(PACKAGES[i]);
+  }
+}
+
+function renderVersions() {
+  var box = $("versions");
+  box.innerHTML = "";
+  var lastRec = hist.length ? hist[hist.length - 1] : null;
+  if (!lastRec) {
+    box.innerHTML = "<div style=\"color:#8c959f\">no snapshots yet</div>";
+    return;
+  }
+  for (var i = 0; i < PACKAGES.length; i++) {
+    (function (pkg) {
+      var snap = lastRec.packages ? lastRec.packages[pkg.id] : null;
+      var div = document.createElement("div");
+      div.style.marginBottom = "16px";
+      var head = "<h3 style=\"font-size:13.5px;margin:0 0 8px\">" + esc(pkg.short) + " <span style=\"color:#8c959f;font-weight:400;font-size:11.5px\">snapshot " + esc(lastRec.date) + "</span></h3>";
+      if (!snap || !snap.versions) {
+        div.innerHTML = head + "<div style=\"color:#8c959f;font-size:12.5px\">no per-version data in this snapshot</div>";
+        box.appendChild(div);
+        return;
+      }
+      var entries = Object.keys(snap.versions).map(function (k) { return [k, snap.versions[k]]; });
+      entries.sort(function (a, b) {
+        var pa = a[0].split(".").map(Number), pb = b[0].split(".").map(Number);
+        for (var j = 0; j < Math.max(pa.length, pb.length); j++) {
+          var x = pa[j] || 0, y = pb[j] || 0;
+          if (x !== y) return x - y;
+        }
+        return 0;
+      });
+      var max = Math.max.apply(null, entries.map(function (e) { return e[1]; }).concat([1]));
+      var rows = "";
+      for (var j = 0; j < entries.length; j++) {
+        var w = Math.max(1, Math.round((entries[j][1] / max) * 100));
+        rows += "<div style=\"display:flex;align-items:center;gap:10px;margin:5px 0\">" +
+          "<span style=\"width:74px;font-size:12.5px;font-variant-numeric:tabular-nums\">" + esc(entries[j][0]) + "</span>" +
+          "<span style=\"flex:1;background:#eef2f6;border-radius:4px;height:14px;overflow:hidden\">" +
+          "<span style=\"display:block;height:100%;width:" + w + "%;background:" + pkg.color + ";opacity:.85;border-radius:4px\"></span></span>" +
+          "<span style=\"width:70px;text-align:right;font-size:12.5px;font-variant-numeric:tabular-nums\">" + fmt(entries[j][1]) + "</span></div>";
+      }
+      div.innerHTML = head + rows;
+      box.appendChild(div);
+    })(PACKAGES[i]);
+  }
+}
+
+function setStatus(mode, text) {
+  var dot = $("sdot");
+  dot.className = "dot" + (mode === "ok" ? " ok" : (mode === "err" ? " err" : ""));
+  $("stext").textContent = text;
+}
+function showErr(msg) {
+  var b = $("errbox");
+  b.style.display = "block";
+  b.textContent = msg;
+}
+
+function loadAll() {
+  setStatus("busy", "loading…");
+  var pHist = fetch(HISTORY_URL, { cache: "no-store" }).then(function (r) {
+    if (!r.ok) throw new Error("history.jsonl → HTTP " + r.status);
+    return r.text();
+  }).then(function (text) {
+    var recs = text.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean).map(function (l) { return JSON.parse(l); });
+    recs.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    hist = recs;
+  });
+  var pLive = Promise.all(PACKAGES.map(function (p) {
+    var url = SEARCH_URL + "?q=" + encodeURIComponent("+" + p.id) + "&take=1";
+    return fetch(url, { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (j) {
+      var hit = null;
+      var arr = j.data || [];
+      for (var i = 0; i < arr.length; i++) if (arr[i].id.toLowerCase() === p.id.toLowerCase()) hit = arr[i];
+      if (!hit) throw new Error("no exact match");
+      return { id: p.id, total: hit.totalDownloads, latest: hit.version };
+    });
+  }));
+
+  return Promise.all([pHist, pLive]).then(function (res) {
+    liveData = {};
+    res[1].forEach(function (r, idx) {
+      if (r && !(r instanceof Error)) liveData[PACKAGES[idx].id] = r;
+    });
+    var errors = res[1].filter(function (r) { return r instanceof Error; });
+    lastSnapshot = hist.length ? hist[hist.length - 1] : null;
+    renderCards();
+    renderCharts();
+    renderVersions();
+    var now = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
+    if (hist.length) {
+      $("fmeta").textContent = "history: " + hist.length + " snapshot(s) · " + hist[0].date + " → " + lastSnapshot.date + " · rendered " + now;
+    } else {
+      $("fmeta").textContent = "history: empty · rendered " + now;
+    }
+    if (errors.length) {
+      showErr("Live NuGet fetch failed for " + errors.length + " package(s) (cards fall back to the last snapshot). " + errors.map(function (e) { return e.message; }).join("; "));
+      setStatus("err", "live fetch partial failure");
+    } else {
+      $("errbox").style.display = "none";
+      setStatus("ok", "live · " + now);
+    }
+  }).catch(function (e) {
+    hist = [];
+    renderCards(); renderCharts(); renderVersions();
+    showErr("Failed to load data: " + e.message + " — opening this page from the GitHub Pages site (https://memoryfraction.github.io/stats/) will work; a local file:// open cannot fetch relative data.");
+    setStatus("err", "load failed");
+  });
+}
+
+function setGranularity(g) {
+  granularity = g;
+  var btns = document.querySelectorAll("#seg button");
+  for (var i = 0; i < btns.length; i++) btns[i].className = (btns[i].getAttribute("data-g") === g) ? "active" : "";
+  renderCharts();
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  var seg = $("seg");
+  seg.addEventListener("click", function (ev) {
+    var b = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+    if (b && b.getAttribute("data-g")) setGranularity(b.getAttribute("data-g"));
+  });
+  $("refresh").addEventListener("click", loadAll);
+  loadAll();
+  setInterval(loadAll, 120000);
+});
+</script>
+</body>
+</html>
