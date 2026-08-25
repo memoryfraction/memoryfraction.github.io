@@ -70,7 +70,7 @@ a{color:var(--accent)}
 <div class="wrap">
   <header>
     <h1>📦 NuGet Download Stats <span style="color:var(--muted);font-weight:500;font-size:18px">动态下载图表</span></h1>
-    <p class="sub">memoryfraction · <a href="https://github.com/memoryfraction/memoryfraction">GitHub</a> · data: nuget.org live totals + daily snapshots (<code>stats/history.jsonl</code>)</p>
+    <p class="sub">memoryfraction · <a href="https://github.com/memoryfraction/memoryfraction.github.io">GitHub</a> · data: nuget.org live totals + daily snapshots (<code>stats/history.jsonl</code>)</p>
   </header>
 
   <div class="errbox" id="errbox"></div>
@@ -546,7 +546,7 @@ function loadAll() {
   }).catch(function (e) {
     hist = [];
     renderCards(); renderCharts(); renderVersions();
-    showErr("Failed to load data: " + e.message + " — opening this page from the GitHub Pages site (https://memoryfraction.github.io/memoryfraction/) will work; a local file:// open cannot fetch relative data.");
+    showErr("Failed to load data: " + e.message + " — opening this page from the GitHub Pages site (https://memoryfraction.github.io/) will work; a local file:// open cannot fetch relative data.");
     setStatus("err", "load failed");
   });
 }

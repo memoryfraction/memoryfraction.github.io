@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - "stats/**"
+      - "legacy/**"
       - "charts/**"
       - "README.md"
       - ".github/workflows/pages.yml"
@@ -31,12 +32,13 @@ jobs:
 
       - name: Assemble site
         run: |
-          mkdir -p build/stats build/charts
+          mkdir -p build/stats build/charts build/memoryfraction
           cp stats/index.html build/index.html
           cp stats/index.html build/stats/index.html
           cp stats/history.jsonl build/history.jsonl
           cp stats/history.jsonl build/stats/history.jsonl
           cp charts/nuget-downloads.png build/charts/nuget-downloads.png
+          cp legacy/memoryfraction-index.html build/memoryfraction/index.html
 
       - uses: actions/configure-pages@v5
 

@@ -55,7 +55,7 @@ Live demos of the healthcare interoperability stack:
   <img src="charts/nuget-downloads.png" alt="NuGet downloads chart (auto-updated daily)" width="880">
 </p>
 
-<p align="center"><sub>📈 <a href="https://memoryfraction.github.io/memoryfraction/">Interactive dashboard · 动态图表</a> — day / week / month / year, live totals, per-version breakdown (year view stacked by version) · 数据每天 11:30 UTC 自动快照（NuGet 无官方时间序列，最细粒度=天）</sub></p>
+<p align="center"><sub>📈 <a href="https://memoryfraction.github.io/">Interactive dashboard · 动态图表</a> — day / week / month / year, live totals, per-version breakdown (year view stacked by version) · 数据每天 11:30 UTC 自动快照（NuGet 无官方时间序列，最细粒度=天）</sub></p>
 
 ---
 
@@ -138,7 +138,7 @@ Working on FHIR / healthcare interoperability and think we could help each other
   <img src="charts/nuget-downloads.png" alt="NuGet 下载量图表（每日自动更新）" width="880">
 </p>
 
-<p align="center"><sub>📈 <a href="https://memoryfraction.github.io/memoryfraction/">交互式动态图表</a> — 天 / 周 / 月 / 年粒度 + 实时累计下载量 + 按版本分布（年份视图柱内按版本叠加）· 数据由 GitHub Actions 每日 11:30 UTC 自动快照更新（最细粒度=天，周/月/年为聚合）</sub></p>
+<p align="center"><sub>📈 <a href="https://memoryfraction.github.io/">交互式动态图表</a> — 天 / 周 / 月 / 年粒度 + 实时累计下载量 + 按版本分布（年份视图柱内按版本叠加）· 数据由 GitHub Actions 每日 11:30 UTC 自动快照更新（最细粒度=天，周/月/年为聚合）</sub></p>
 
 ---
 
