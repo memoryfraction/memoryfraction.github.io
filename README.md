@@ -1,3 +1,7 @@
+<style>
+.btn-subscribe { display: inline-block; padding: 10px 22px; background-color: #2da44e; color: #ffffff; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 15px; margin-top: 10px; }
+.btn-subscribe:hover { opacity: 0.9; color: #ffffff; }
+</style>
 <div align="center">
   <h1>👋 Hi, I'm Rex Fan</h1>
   <p><strong>I help US healthcare teams ship FHIR-compliant, audit-ready interoperability — built on .NET.</strong></p>
@@ -79,7 +83,7 @@ Working on FHIR / healthcare interoperability and think we could help each other
 <div align="center">
   <h3>🎁 Free: The FHIR R4/R5 Compliance Checklist</h3>
   <p><em>The 12 pitfalls teams hit on the road to 21st Century Cures Act certification — in one printable PDF.<br>Get the checklist, plus occasional deep-dives on healthcare interoperability. No spam, unsubscribe anytime.</em></p>
-  <a href="https://mailchi.mp/83cafe450eef/rex-landing-page" target="_blank"><strong>📧 Send me the free checklist →</strong></a>
+  <a href="https://mailchi.mp/83cafe450eef/rex-landing-page" target="_blank" class="btn-subscribe">📧 Subscribe — Get the Free US Healthcare Checklist</a>
 </div>
 ---
 <div align="center">
@@ -162,6 +166,6 @@ Working on FHIR / healthcare interoperability and think we could help each other
 <div align="center">
   <h3>🎁 免费领取：《FHIR R4/R5 合规实施 Checklist》</h3>
   <p><em>通往《21世纪治愈法案》认证路上最常见的 12 个坑 —— 整理成一份可打印的 PDF。<br>领取清单，并不定期收到医疗互操作性的深度文章。无垃圾邮件，随时退订。</em></p>
-  <a href="https://mailchi.mp/83cafe450eef/rex-landing-page" target="_blank"><strong>📧 把免费清单发给我 →</strong></a>
+  <a href="https://mailchi.mp/83cafe450eef/rex-landing-page" target="_blank" class="btn-subscribe">📧 订阅 — 免费领取 US Healthcare Checklist</a>
 </div>
 
