@@ -80,6 +80,7 @@ a{color:var(--accent)}
       <button data-g="day" class="active">Day 日</button>
       <button data-g="week">Week 周</button>
       <button data-g="month">Month 月</button>
+      <button data-g="year">Year 年</button>
     </div>
     <button class="btn" id="refresh">↻ Refresh 刷新</button>
     <span class="status"><span class="dot" id="sdot"></span><span id="stext">loading…</span></span>
@@ -89,7 +90,7 @@ a{color:var(--accent)}
 
   <div class="panel">
     <h2>Period downloads + cumulative trend</h2>
-    <p class="hint">Bars = downloads in the selected period (day / ISO-week / calendar-month); line = cumulative lifetime total at period end. 柱 = 当期下载量；线 = 期末累计总量。</p>
+    <p class="hint">Bars = downloads in the selected period (day / ISO-week / calendar-month / calendar-year); in Year view each bar is stacked by version share; line = cumulative lifetime total at period end. 柱 = 当期下载量（年份视图柱内按版本分段叠加）；线 = 期末累计总量。</p>
     <div id="charts"></div>
   </div>
 
@@ -102,20 +103,20 @@ a{color:var(--accent)}
   <div class="note">
     <h3>📊 Data source &amp; granularity 数据源与粒度</h3>
     <ul>
-      <li>NUGET public APIs expose <b>lifetime cumulative</b> downloads only (per package / per version). The official v3 stats time-series API is gone (all endpoints return 404 — verified 2026-08; no <code>Stats</code> resource in the v3 service index).</li>
-      <li><b>Finest granularity = DAY</b>: a GitHub Actions workflow snapshots the cumulative counters once per day (11:30 UTC); a day's downloads = difference between consecutive snapshots.</li>
-      <li><b>Week / Month</b> views are calendar aggregations (ISO week / calendar month) of the daily deltas — derived, not native data.</li>
-      <li><b>Sub-day (hourly) precision is not possible</b> — the data source does not provide it.</li>
-      <li>NuGet's counters update with a lag (hours), so the latest day may be under-counted until the next snapshot.</li>
-    </ul>
+      <li>NuGet public APIs expose <b>lifetime cumulative</b> downloads (per package / per version, CORS-open) plus a rolling <b>“last 6 weeks”</b> window at <code>www.nuget.org/stats/reports/packages/{id}</code> — the data behind nuget.org’s “Package Downloads” page, pivotable by version / client name. It has <b>no CORS</b> header (server-side only), a fixed 6-week window, and is not a time series. The v3 stats time-series API is gone (all endpoints 404 — re-verified 2026-08-25; no <code>Stats</code> resource in the v3 service index).</li>
+      <li>NuGet also publishes each version’s <b>release timestamp</b> (second precision, registration API) — but that is release dates, not downloads-over-time.</li>
+      <li><b>Finest granularity = DAY, and it is derived</b>: a GitHub Actions workflow snapshots the cumulative counters once per day (11:30 UTC); a day’s downloads = difference between consecutive snapshots.</li>
+      <li><b>Week / Month / Year</b> views = calendar aggregations (ISO week / month / year) of those daily deltas. In Year view each bar is stacked by version share.</li>
+      <li><b>Sub-day (hourly) precision: not possible</b> — no public NuGet source provides it.</li>
+      <li>NuGet’s counters update with a lag (hours), so the latest day may be under-counted until the next snapshot.</li></ul>
     <div class="zh">
       <ul>
-        <li>NuGet 公开 API 只提供<b>累计总下载量</b>（按包 / 按版本）。官方 v3 统计时间序列接口已下线（2026-08 实测全部 404，v3 service index 中也没有 Stats 资源）。</li>
-        <li><b>最细粒度 = 天</b>：GitHub Actions 每天 11:30 UTC 快照一次累计计数，某天的下载量 = 相邻两次快照的差值。</li>
-        <li><b>周 / 月</b>视图 = 按日历周（ISO）/ 日历月对日增量做的聚合，属于推导值，不是 NuGet 原生数据。</li>
-        <li><b>小时级更细的粒度：数据源不支持。</b></li>
-        <li>NuGet 计数器本身有数小时延迟，最近一天可能要等下一次快照才完整。</li>
-      </ul>
+        <li>NuGet 公开 API 提供：<b>累计总下载量</b>（按包 / 按版本，支持浏览器跨域）＋ <code>www.nuget.org/stats/reports/packages/{id}</code> 的滚动<b>“近 6 周”</b>窗口（可按版本 / 客户端拆分，即 nuget.org “Package Downloads” 页面的数据源；<b>无 CORS</b>、固定 6 周窗口、仅服务端可调用，且不是时间序列）。v3 统计时间序列接口已下线（2026-08-25 实测全部 404，v3 service index 无 Stats 资源）。</li>
+        <li>注册 API 还提供每个版本的<b>发布时间戳</b>（精确到秒）——但那是发布时间，不是下载量时间序列。</li>
+        <li><b>最细粒度 = 天，且属于推导值</b>：GitHub Actions 每天 11:30 UTC 快照一次累计计数，某天的下载量 = 相邻两次快照的差值。</li>
+        <li><b>周 / 月 / 年</b>视图 = 对这些日增量按日历周（ISO）/ 月 / 年的聚合。年份视图柱内按版本分段叠加。</li>
+        <li><b>小时级更细：任何公开 NuGet 数据源都不支持。</b></li>
+        <li>NuGet 计数器本身有数小时延迟，最近一天可能要等下一次快照才完整。</li></ul>
     </div>
   </div>
 
@@ -165,6 +166,7 @@ function weekStart(dstr) {
 function bucketKey(dstr, g) {
   if (g === "week") return weekStart(dstr);
   if (g === "month") return dstr.slice(0, 7);
+  if (g === "year") return dstr.slice(0, 4);
   return dstr;
 }
 function bucketLabel(key, g) {
@@ -219,7 +221,39 @@ function seriesFor(pkg) {
     dl.push(b.known ? b.sum : null);
     cum.push(b.cum !== undefined ? b.cum : null);
   }
-  return { keys: keys, downloads: dl, cumulative: cum };
+  var out = { keys: keys, downloads: dl, cumulative: cum };
+  if (granularity === "year") out.perVersion = perVersionYearSums(pkg);
+  return out;
+}
+
+function semverCompare(a, b) {
+  var pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+  for (var j = 0; j < Math.max(pa.length, pb.length); j++) {
+    var x = pa[j] || 0, y = pb[j] || 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
+function perVersionYearSums(pkg) {
+  var out = {};
+  var prev = null;
+  for (var i = 0; i < hist.length; i++) {
+    var h = hist[i];
+    var p = (h.packages || {})[pkg.id];
+    if (!p || !p.versions) continue;
+    var year = String(h.date).slice(0, 4);
+    if (!out[year]) out[year] = {};
+    if (prev) {
+      for (var ver in p.versions) {
+        var t = p.versions[ver];
+        var d = Math.max(0, t - (prev[ver] || 0));
+        if (d > 0) out[year][ver] = (out[year][ver] || 0) + d;
+      }
+    }
+    prev = p.versions;
+  }
+  return out;
 }
 
 function svgEl(tag, attrs) {
@@ -276,23 +310,55 @@ function drawChart(container, pkg) {
   var bw = Math.min(step * 0.58, 46);
   var showEvery = Math.max(1, Math.ceil(n / 8));
 
+  var pv = (granularity === "year" && s.perVersion) ? s.perVersion : null;
   for (var i = 0; i < n; i++) {
     var key = s.keys[i], label = bucketLabel(key, granularity);
     var v = s.downloads[i];
     if (v !== null && v >= 0) {
-      var bh = Math.max(1, (v / dlTop) * ih);
-      var bar = svgEl("rect", {
-        x: xAt(i) - bw / 2, y: T + ih - bh, width: bw, height: bh,
-        rx: 2, class: "bar", fill: pkg.color
-      });
-      var tip = svgEl("title", {});
-      tip.textContent = label + "\ndownloads: " + fmt(v) + "\ncumulative: " + (s.cumulative[i] !== null ? fmt(s.cumulative[i]) : "—");
-      bar.appendChild(tip);
-      svg.appendChild(bar);
+      var segments = null;
+      if (pv && pv[key]) {
+        var vers = Object.keys(pv[key]).sort(semverCompare);
+        var att = 0;
+        for (var vi2 = 0; vi2 < vers.length; vi2++) att += pv[key][vers[vi2]];
+        if (vers.length) {
+          segments = [];
+          for (var vi3 = 0; vi3 < vers.length; vi3++) segments.push({ name: vers[vi3], amount: pv[key][vers[vi3]] });
+          if (v - att > 0) segments.push({ name: "other 其他", amount: v - att });
+        }
+      }
+      if (segments) {
+        var yCur = T + ih;
+        for (var si = 0; si < segments.length; si++) {
+          var amt = segments[si].amount;
+          if (amt <= 0) continue;
+          var sh = Math.max(1, (amt / dlTop) * ih);
+          if (yCur - sh < T) sh = Math.max(0, yCur - T);
+          if (sh <= 0) continue;
+          var seg = svgEl("rect", {
+            x: xAt(i) - bw / 2, y: yCur - sh, width: bw, height: sh,
+            class: "bar", fill: pkg.color, opacity: (Math.max(0.3, 1 - si * 0.22)).toFixed(2)
+          });
+          var st = svgEl("title", {});
+          st.textContent = label + " · " + segments[si].name + "\ndownloads: " + fmt(amt) + "\ncumulative: " + (s.cumulative[i] !== null ? fmt(s.cumulative[i]) : "—");
+          seg.appendChild(st);
+          svg.appendChild(seg);
+          yCur -= sh;
+        }
+      } else {
+        var bh = Math.max(1, (v / dlTop) * ih);
+        var bar = svgEl("rect", {
+          x: xAt(i) - bw / 2, y: T + ih - bh, width: bw, height: bh,
+          rx: 2, class: "bar", fill: pkg.color
+        });
+        var tip = svgEl("title", {});
+        tip.textContent = label + "\ndownloads: " + fmt(v) + "\ncumulative: " + (s.cumulative[i] !== null ? fmt(s.cumulative[i]) : "—");
+        bar.appendChild(tip);
+        svg.appendChild(bar);
+      }
     }
     if (i % showEvery === 0 || i === n - 1) {
       var xt = svgEl("text", { x: xAt(i), y: T + ih + 16, "text-anchor": "middle", class: "tick" });
-      xt.textContent = (granularity === "month") ? key : (granularity === "week" ? key.slice(5) : key.slice(5));
+      xt.textContent = (granularity === "day" || granularity === "week") ? key.slice(5) : key;
       svg.appendChild(xt);
     }
   }
@@ -480,7 +546,7 @@ function loadAll() {
   }).catch(function (e) {
     hist = [];
     renderCards(); renderCharts(); renderVersions();
-    showErr("Failed to load data: " + e.message + " — opening this page from the GitHub Pages site (https://memoryfraction.github.io/stats/) will work; a local file:// open cannot fetch relative data.");
+    showErr("Failed to load data: " + e.message + " — opening this page from the GitHub Pages site (https://memoryfraction.github.io/memoryfraction/) will work; a local file:// open cannot fetch relative data.");
     setStatus("err", "load failed");
   });
 }
