@@ -8,7 +8,7 @@
   <p>🏥 AI Powered Healthcare IT / FHIR Interoperability &nbsp;·&nbsp; also building in 💹 Quant Dev &amp; ⚡ Lightning Science</p>
 </div>
 <div align="center">
-  <img src="https://api.visitorbadge.io/api/visitors?path=memoryfraction&label=Profile%20Visits&countColor=%23263759" alt="Profile Visits Badge" />
+  <a href="https://counter.dev/" target="_blank" style="text-decoration:none"><img src="https://api.visitorbadge.io/api/visitors?path=memoryfraction&label=Profile%20Visits&countColor=%23263759" alt="Profile Visits Badge" /></a>
 </div>
 ---
 
