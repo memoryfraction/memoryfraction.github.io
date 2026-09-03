@@ -51,9 +51,9 @@ Live demos of the healthcare interoperability stack:
 
 | Package | Downloads | Version |
 |---------|-----------|---------|
-| [**HealthData.Interop.Fhir**](https://www.nuget.org/packages/HealthData.Interop.Fhir) | ![Downloads](https://img.shields.io/nuget/dt/HealthData.Interop.Fhir) | ![Version](https://img.shields.io/nuget/v/HealthData.Interop.Fhir.svg) |
-| [**Quant.Infra.Net**](https://www.nuget.org/packages/Quant.Infra.Net) | ![Downloads](https://img.shields.io/nuget/dt/Quant.Infra.Net) | ![Version](https://img.shields.io/nuget/v/Quant.Infra.Net.svg) |
-| [**LightningLocationSystemDataAnalyzer-LLDSA**](https://www.nuget.org/packages/LightningLocationSystemDataAnalyzer-LLDSA/) | ![Downloads](https://img.shields.io/nuget/dt/LightningLocationSystemDataAnalyzer-LLDSA) | ![Version](https://img.shields.io/nuget/v/LightningLocationSystemDataAnalyzer-LLDSA.svg) |
+| [**HealthData.Interop.Fhir**](https://www.nuget.org/packages/HealthData.Interop.Fhir) | 515 | v1.3.4 |
+| [**Quant.Infra.Net**](https://www.nuget.org/packages/Quant.Infra.Net) | 205 | v1.5.3 |
+| [**LightningLocationSystemDataAnalyzer-LLDSA**](https://www.nuget.org/packages/LightningLocationSystemDataAnalyzer-LLDSA/) | 1.1k | v1.4.1 |
 
 <p align="center">
   <img src="https://memoryfraction.github.io/charts/nuget-downloads.png" alt="NuGet downloads chart (auto-updated daily)" width="880">
@@ -134,9 +134,9 @@ Working on FHIR / healthcare interoperability and think we could help each other
 ## 📦 NuGet 发布包
 | 软件包 | 下载量 | 版本 |
 |---------|-----------|---------|
-| [**HealthData.Interop.Fhir**](https://www.nuget.org/packages/HealthData.Interop.Fhir) | ![Downloads](https://img.shields.io/nuget/dt/HealthData.Interop.Fhir) | ![Version](https://img.shields.io/nuget/v/HealthData.Interop.Fhir.svg) |
-| [**Quant.Infra.Net**](https://www.nuget.org/packages/Quant.Infra.Net) | ![Downloads](https://img.shields.io/nuget/dt/Quant.Infra.Net) | ![Version](https://img.shields.io/nuget/v/Quant.Infra.Net.svg) |
-| [**LightningLocationSystemDataAnalyzer-LLDSA**](https://www.nuget.org/packages/LightningLocationSystemDataAnalyzer-LLDSA/) | ![Downloads](https://img.shields.io/nuget/dt/LightningLocationSystemDataAnalyzer-LLDSA) | ![Version](https://img.shields.io/nuget/v/LightningLocationSystemDataAnalyzer-LLDSA.svg) |
+| [**HealthData.Interop.Fhir**](https://www.nuget.org/packages/HealthData.Interop.Fhir) | 515 | v1.3.4 |
+| [**Quant.Infra.Net**](https://www.nuget.org/packages/Quant.Infra.Net) | 205 | v1.5.3 |
+| [**LightningLocationSystemDataAnalyzer-LLDSA**](https://www.nuget.org/packages/LightningLocationSystemDataAnalyzer-LLDSA/) | 1.1k | v1.4.1 |
 
 <p align="center">
   <img src="https://memoryfraction.github.io/charts/nuget-downloads.png" alt="NuGet 下载量图表（每日自动更新）" width="880">
