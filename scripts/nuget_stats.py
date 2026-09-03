@@ -197,6 +197,7 @@ def render_chart(history: list, out_path: Path) -> None:
             ax.axis("off")
             continue
         items = sorted(versions.items(), key=lambda kv: _semver_key(kv[0]))
+        items = items[-5:]  # show only the 5 latest versions
         labels = [k for k, _ in items]
         values = [v for _, v in items]
         color = _color(pkg, pkgs)
