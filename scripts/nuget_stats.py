@@ -185,37 +185,32 @@ def render_chart(history: list, out_path: Path) -> None:
     gs = gridspec.GridSpec(nrows, ncols, figure=fig, hspace=0.62, wspace=0.38,
                            left=0.05, right=0.985, top=0.80, bottom=0.09)
 
-    # ---- row 0: per-version bars ------------------------------------------
+    # ---- row 0: package-level lifetime totals -----------------------------
+    # NOTE: the NuGet search API does NOT return a reliable per-version
+    # cumulative total for the LATEST version of a package (it comes back
+    # 0 / empty), so a per-version bar breakdown would show fake zeros.
+    # We therefore chart the reliable per-package lifetime total only, plus
+    # the daily-snapshot trend below. (NuGet has no per-version time series.)
     for col, pkg in enumerate(pkgs):
         ax = fig.add_subplot(gs[0, col])
         info = latest["packages"][pkg]
-        versions = info.get("versions") or {}
-        if not versions:
-            ax.text(0.5, 0.5, "no per-version data", ha="center", va="center",
-                    transform=ax.transAxes, color="#888")
-            ax.set_title(pkg, fontsize=10)
-            ax.axis("off")
-            continue
-        items = sorted(versions.items(), key=lambda kv: _semver_key(kv[0]))
-        items = items[-5:]  # show only the 5 latest versions
-        labels = [k for k, _ in items]
-        values = [v for _, v in items]
+        total = int(info.get("total", 0) or 0)
+        latest_version = info.get("latestVersion") or "n/a"
         color = _color(pkg, pkgs)
-        bars = ax.barh(labels, values, color=color, height=0.62)
-        for bar, val in zip(bars, values):
-            ax.text(bar.get_width() + max(values) * 0.02,
-                    bar.get_y() + bar.get_height() / 2,
-                    format(val, ","), va="center", fontsize=8)
-        ax.set_xlim(0, max(values) * 1.18)
-        ax.xaxis.set_major_formatter(FuncFormatter(_fmt_int))
-        ax.tick_params(axis="y", labelsize=8.5)
-        ax.tick_params(axis="x", labelsize=8)
+        bar = ax.bar([0], [total], color=color, width=0.55)
+        ax.text(bar[0].get_x() + bar[0].get_width() / 2.0, total,
+                format(total, ","), ha="center", va="bottom", fontsize=11, weight="bold")
+        ax.set_xlim(-0.6, 1.6)
+        ax.set_ylim(0, max(total, 1) * 1.25)
+        ax.set_xticks([0])
+        ax.set_xticklabels([latest_version], fontsize=9)
+        ax.yaxis.set_major_formatter(FuncFormatter(_fmt_int))
+        ax.tick_params(axis="y", labelsize=8)
         title = (SHORT_NAMES.get(pkg) or "\n".join(textwrap.wrap(pkg, 20))) or pkg
-        ax.set_title(title + "\n(total " + format(info.get("total", 0), ",") + " lifetime)", fontsize=10)
-        ax.grid(axis="x", linewidth=0.4, alpha=0.5)
+        ax.set_title(title, fontsize=10)
+        ax.grid(axis="y", linewidth=0.4, alpha=0.5)
         for s in ("top", "right"):
             ax.spines[s].set_visible(False)
-
     # ---- row 1: cumulative trend (needs >= 2 snapshots) -------------------
     if has_trend:
         ax = fig.add_subplot(gs[1, :])
