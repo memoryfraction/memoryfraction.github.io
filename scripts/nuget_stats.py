@@ -171,68 +171,55 @@ def _color(pkg: str, pkgs: list) -> str:
 
 
 def render_chart(history: list, out_path: Path) -> None:
+    """Render the cumulative-downloads trend as a single-panel chart.
+
+    Why only one panel:
+      - The NuGet search API returns a *lifetime-cumulative* count per
+        package and per version, but it does NOT return a reliable
+        per-version cumulative for the LATEST version of a package
+        (it comes back 0 / empty). A per-package or per-version bar
+        would therefore show fake zeros (e.g. Fhir 1.3.4 = 0, QIN
+        1.5.3 = 0) even though those versions are in active use.
+      - NuGet also has no official time-series API, so the only
+        trustworthy series we can build is the daily-snapshot delta
+        (cumulative at each UTC day, from stats/history.jsonl).
+      - Hence: a single cumulative-trend line chart, one series per
+        package. (NuGet has no per-version time series.)
+    """
     if not history:
         raise SystemExit("no history records; nothing to render")
 
     latest = history[-1]
     pkgs = [p for p in PACKAGES if p in latest.get("packages", {})]
-    ncols = max(len(pkgs), 1)
-    has_trend = len(history) >= 2
-    nrows = 2 if has_trend else 1
+    if not pkgs:
+        raise SystemExit("no packages found in latest snapshot")
+    if len(history) < 2:
+        raise SystemExit("need at least 2 snapshots to render a trend")
 
-    fig = plt.figure(figsize=(4.3 * ncols, (3.4 * nrows) + 1.2))
+    fig = plt.figure(figsize=(11.0, 4.6))
     fig.patch.set_facecolor("white")
-    gs = gridspec.GridSpec(nrows, ncols, figure=fig, hspace=0.62, wspace=0.38,
-                           left=0.05, right=0.985, top=0.80, bottom=0.09)
+    gs = gridspec.GridSpec(1, 1, figure=fig, hspace=0.62, wspace=0.38,
+                           left=0.07, right=0.985, top=0.80, bottom=0.11)
 
-    # ---- row 0: package-level lifetime totals -----------------------------
-    # NOTE: the NuGet search API does NOT return a reliable per-version
-    # cumulative total for the LATEST version of a package (it comes back
-    # 0 / empty), so a per-version bar breakdown would show fake zeros.
-    # We therefore chart the reliable per-package lifetime total only, plus
-    # the daily-snapshot trend below. (NuGet has no per-version time series.)
-    for col, pkg in enumerate(pkgs):
-        ax = fig.add_subplot(gs[0, col])
-        info = latest["packages"][pkg]
-        total = int(info.get("total", 0) or 0)
-        latest_version = info.get("latestVersion") or "n/a"
-        color = _color(pkg, pkgs)
-        bar = ax.bar([0], [total], color=color, width=0.55)
-        ax.text(bar[0].get_x() + bar[0].get_width() / 2.0, total,
-                format(total, ","), ha="center", va="bottom", fontsize=11, weight="bold")
-        ax.set_xlim(-0.6, 1.6)
-        ax.set_ylim(0, max(total, 1) * 1.25)
-        ax.set_xticks([0])
-        ax.set_xticklabels([latest_version], fontsize=9)
-        ax.yaxis.set_major_formatter(FuncFormatter(_fmt_int))
-        ax.tick_params(axis="y", labelsize=8)
-        title = (SHORT_NAMES.get(pkg) or "\n".join(textwrap.wrap(pkg, 20))) or pkg
-        ax.set_title(title, fontsize=10)
-        ax.grid(axis="y", linewidth=0.4, alpha=0.5)
-        for s in ("top", "right"):
-            ax.spines[s].set_visible(False)
-    # ---- row 1: cumulative trend (needs >= 2 snapshots) -------------------
-    if has_trend:
-        ax = fig.add_subplot(gs[1, :])
-        dates = [h["date"] for h in history]
-        for pkg in pkgs:
-            series = [h["packages"].get(pkg, {}).get("total") for h in history]
-            if any(v is not None for v in series):
-                ax.plot(dates, series, marker="o", markersize=4, linewidth=1.8,
-                        color=_color(pkg, pkgs), label=pkg)
-        ax.set_title("Cumulative downloads over time (daily snapshots; NuGet has no official series)",
-                     fontsize=10)
-        ax.tick_params(labelsize=8)
-        ax.yaxis.set_major_formatter(FuncFormatter(_fmt_int))
-        ax.grid(linewidth=0.4, alpha=0.5)
-        ax.legend(fontsize=8, loc="upper left")
-        for s in ("top", "right"):
-            ax.spines[s].set_visible(False)
-        if len(dates) < 3:
-            ax.text(0.99, 0.05, "history starts " + dates[0] + " · snapshots accumulate daily",
-                    transform=ax.transAxes, ha="right", fontsize=7.5, color="#777")
+    ax = fig.add_subplot(gs[0, 0])
+    dates = [h["date"] for h in history]
+    for pkg in pkgs:
+        series = [h["packages"].get(pkg, {}).get("total") for h in history]
+        if any(v is not None for v in series):
+            ax.plot(dates, series, marker="o", markersize=4, linewidth=1.8,
+                    color=_color(pkg, pkgs), label=pkg)
+    ax.set_title("Cumulative downloads over time (daily snapshots; NuGet has no official series)",
+                 fontsize=11)
+    ax.set_xlabel("UTC date (snapshot day)", fontsize=9)
+    ax.set_ylabel("Lifetime-cumulative downloads", fontsize=9)
+    ax.tick_params(labelsize=8.5)
+    ax.yaxis.set_major_formatter(FuncFormatter(_fmt_int))
+    ax.grid(linewidth=0.4, alpha=0.5)
+    ax.legend(fontsize=9, loc="upper left")
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
 
-    fig.suptitle("NuGet downloads — memoryfraction", fontsize=13, weight="bold", y=0.98)
+    fig.suptitle("NuGet downloads — memoryfraction", fontsize=14, weight="bold", y=0.98)
     fig.text(0.985, 0.01,
              "source: azuresearch-usnc.nuget.org (lifetime cumulative) · updated "
              + latest["date"] + " (UTC)",
