@@ -131,7 +131,10 @@ a{color:var(--accent)}
 var PACKAGES = [
   { id: "HealthData.Interop.Fhir", short: "FHIR Interop", color: "#1f77b4" },
   { id: "Quant.Infra.Net", short: "Quant", color: "#ff7f0e" },
-  { id: "LightningLocationSystemDataAnalyzer-LLDSA", short: "LLDSA", color: "#2ca02c" }
+  { id: "LightningLocationSystemDataAnalyzer-LLDSA", short: "LLDSA", color: "#2ca02c" },
+  { id: "HealthData.Interop.Abstractions", short: "Interop Abstractions", color: "#d62728" },
+  { id: "HealthData.Interop.Logging.Extensions", short: "Interop Logging.Extensions", color: "#9467bd" },
+  { id: "HealthData.Interop.Logging.Serilog", short: "Interop Logging.Serilog", color: "#8c564b" }
 ];
 var SEARCH_URL = "https://azuresearch-usnc.nuget.org/query";
 var HISTORY_URL = "history.jsonl";
@@ -507,7 +510,7 @@ function loadAll() {
     hist = recs;
   });
   var pLive = Promise.all(PACKAGES.map(function (p) {
-    var url = SEARCH_URL + "?q=" + encodeURIComponent("+" + p.id) + "&take=1";
+    var url = SEARCH_URL + "?q=" + encodeURIComponent("packageid:" + p.id) + "&take=1";
     return fetch(url, { cache: "no-store" }).then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
