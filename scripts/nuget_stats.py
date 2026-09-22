@@ -46,14 +46,21 @@ from matplotlib.ticker import FuncFormatter
 # config
 # --------------------------------------------------------------------------
 
+# Order fixes each package's color, so append new packages at the end.
+# HealthData.Interop.Fhir became a meta-package in v1.4.2; the three
+# HealthData.Interop.* components below were split out of it (first
+# published 2026-09, v1.0.1) and have no history before that.
 PACKAGES = [
     "HealthData.Interop.Fhir",
     "Quant.Infra.Net",
     "LightningLocationSystemDataAnalyzer-LLDSA",
+    "HealthData.Interop.Abstractions",
+    "HealthData.Interop.Logging.Extensions",
+    "HealthData.Interop.Logging.Serilog",
 ]
 
-# stable color per package (tab10 order)
-PALETTE = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
+# stable color per package (tab10 order); keep len(PALETTE) >= len(PACKAGES)
+PALETTE = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
 SHORT_NAMES = {
     "LightningLocationSystemDataAnalyzer-LLDSA": "LLDSA (lightning)",
 }
@@ -80,9 +87,12 @@ def fetch_package(package_id: str) -> dict:
     """Fetch lifetime-cumulative download stats for one package.
 
     NOTE: the search endpoint does NOT honor the `packageIds` parameter in all
-    deployments -- `q=+{id}` is the reliable exact-match form.
+    deployments. `q=+{id}` is not exact either: for HealthData.Interop.Abstractions
+    it ranks the HealthData.Interop.Fhir meta-package first, because that
+    package's description names its components. `q=packageid:{id}` is the
+    exact-id filter.
     """
-    params = urllib.parse.urlencode({"q": "+" + package_id, "take": 1})
+    params = urllib.parse.urlencode({"q": "packageid:" + package_id, "take": 1})
     data = _http_get_json(SEARCH_URL + "?" + params)
     hits = data.get("data") or []
     if not hits or hits[0].get("id", "").lower() != package_id.lower():
@@ -196,10 +206,10 @@ def render_chart(history: list, out_path: Path) -> None:
     if len(history) < 2:
         raise SystemExit("need at least 2 snapshots to render a trend")
 
-    fig = plt.figure(figsize=(11.0, 4.6))
+    fig = plt.figure(figsize=(11.0, 5.4))
     fig.patch.set_facecolor("white")
     gs = gridspec.GridSpec(1, 1, figure=fig, hspace=0.62, wspace=0.38,
-                           left=0.07, right=0.985, top=0.80, bottom=0.11)
+                           left=0.07, right=0.985, top=0.83, bottom=0.27)
 
     ax = fig.add_subplot(gs[0, 0])
     dates = [h["date"] for h in history]
@@ -213,9 +223,20 @@ def render_chart(history: list, out_path: Path) -> None:
     ax.set_xlabel("UTC date (snapshot day)", fontsize=9)
     ax.set_ylabel("Lifetime-cumulative downloads", fontsize=9)
     ax.tick_params(labelsize=8.5)
+    # dates are categorical; label at most ~8 of them (always the latest)
+    step = max(1, -(-len(dates) // 8))
+    ticks = list(range(0, len(dates), step))
+    if ticks[-1] != len(dates) - 1:
+        if len(dates) - 1 - ticks[-1] < step / 2:
+            ticks.pop()
+        ticks.append(len(dates) - 1)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([dates[i] for i in ticks])
     ax.yaxis.set_major_formatter(FuncFormatter(_fmt_int))
     ax.grid(linewidth=0.4, alpha=0.5)
-    ax.legend(fontsize=9, loc="upper left")
+    # below the plot: 6+ series inside the axes would cover the lines
+    ax.legend(fontsize=9, loc="upper center", bbox_to_anchor=(0.5, -0.17),
+              ncol=3, frameon=False)
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
 
