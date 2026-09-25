@@ -106,6 +106,9 @@ a{color:var(--accent)}
     <h2>Estimated organic vs. automated downloads 自然下载估计</h2>
     <p class="hint">Each day's delta is split by version against its nuget.org publish date: <b>release burst</b> = downloads to a version within <span class="bd"></span> days of publishing (mirrors / scanners / cache warmers fetch every new version); <b>old-version sweep</b> = downloads to superseded versions, plus the same floor subtracted from the latest when a sweep hits every old version at once; <b>organic</b> = what remains on the current latest version. A heuristic estimate, not ground truth — it cannot tell a human from a CI restore. Dashed lines = releases. HealthData.Interop.* components are pulled in by the Fhir meta-package, so don't add them to Fhir.<br>按版本拆分每日增量：<b>发版脉冲</b> = 版本发布后 <span class="bd"></span> 天内的下载（镜像 / 扫描器会抓取每个新版本）；<b>旧版本扫描</b> = 对已被取代版本的下载（所有旧版本同时 +1 时，最新版本也扣除同样的底数）；<b>自然</b> = 最新版本上剩余的下载。启发式估计，无法区分真人与 CI 还原。虚线 = 发版。</p>
     <div id="organicSummary"></div>
+    <h3 style="font-size:14px;margin:4px 0 6px">Cumulative organic downloads 累计自然下载 <span style="color:#8c959f;font-weight:400;font-size:12px">daily, all packages 按日，全部包</span></h3>
+    <div class="legend" id="organicCumLegend"></div>
+    <div id="organicCum"></div>
     <div class="legend" id="organicLegend"></div>
     <div id="organicCharts"></div>
   </div>
@@ -572,6 +575,65 @@ function drawBreakdown(container, pkg, daily) {
   container.appendChild(svg);
 }
 
+// One line per package: running sum of organic downloads, daily resolution.
+function drawOrganicCumulative(container, legend, dailyByPkg) {
+  var dates = hist.map(function (h) { return h.date; });
+  var lines = [], max = 0;
+  for (var i = 0; i < PACKAGES.length; i++) {
+    var pkg = PACKAGES[i], daily = dailyByPkg[pkg.id];
+    if (!daily) continue;
+    var run = 0, pts = [], started = false;
+    for (var j = 0; j < dates.length; j++) {
+      if (daily[dates[j]]) { run += daily[dates[j]].organic; started = true; }
+      pts.push(started ? run : null);
+    }
+    max = Math.max(max, run);
+    lines.push({ pkg: pkg, pts: pts, total: run });
+  }
+  legend.innerHTML = lines.map(function (l) {
+    return "<span><span class=\"k line\" style=\"background:" + l.pkg.color + "\"></span>" + esc(l.pkg.short) + " <b style=\"color:var(--ink)\">" + fmt(l.total) + "</b></span>";
+  }).join("");
+  var W = 560, H = 230, L = 60, R = 20, T = 12, B = 34;
+  var iw = W - L - R, ih = H - T - B, n = dates.length;
+  var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", "aria-label": "cumulative organic downloads, all packages" });
+  var top = niceCeil(Math.max(max * 1.1, 1));
+  function xAt(k) { return n > 1 ? L + (iw * k) / (n - 1) : L + iw / 2; }
+  function yAt(v) { return T + ih - (v / top) * ih; }
+  for (var gi = 0; gi <= 4; gi++) {
+    var y = T + (ih / 4) * gi;
+    svg.appendChild(svgEl("line", { x1: L, y1: y, x2: W - R, y2: y, class: "grid" }));
+    var lt = svgEl("text", { x: L - 8, y: y + 3.5, "text-anchor": "end", class: "tick" });
+    lt.textContent = fmt(top - (top / 4) * gi);
+    svg.appendChild(lt);
+  }
+  svg.appendChild(svgEl("line", { x1: L, y1: T + ih, x2: W - R, y2: T + ih, class: "axis" }));
+  var showEvery = Math.max(1, Math.ceil(n / 8));
+  for (j = 0; j < n; j++) {
+    if (j % showEvery !== 0 && j !== n - 1) continue;
+    var xt = svgEl("text", { x: xAt(j), y: T + ih + 16, "text-anchor": "middle", class: "tick" });
+    xt.textContent = dates[j].slice(5);
+    svg.appendChild(xt);
+  }
+  lines.forEach(function (l) {
+    var d = "";
+    for (var k = 0; k < n; k++) {
+      if (l.pts[k] === null) continue;
+      d += (d ? "L" : "M") + xAt(k).toFixed(1) + " " + yAt(l.pts[k]).toFixed(1);
+    }
+    if (d) svg.appendChild(svgEl("path", { d: d, class: "cum", stroke: l.pkg.color }));
+    for (k = 0; k < n; k++) {
+      if (l.pts[k] === null) continue;
+      var dot = svgEl("circle", { cx: xAt(k), cy: yAt(l.pts[k]), r: 2.6, class: "pt", fill: l.pkg.color });
+      var tip = svgEl("title", {});
+      tip.textContent = l.pkg.short + " · " + dates[k] + "\norganic cumulative 累计自然: " + fmt(l.pts[k]) +
+        (dailyByPkg[l.pkg.id][dates[k]] ? "\norganic that day 当日自然: " + fmt(dailyByPkg[l.pkg.id][dates[k]].organic) : "");
+      dot.appendChild(tip);
+      svg.appendChild(dot);
+    }
+  });
+  container.appendChild(svg);
+}
+
 function windowSum(daily, lastDate, days) {
   var s = { organic: 0, burst: 0, sweep: 0 };
   for (var date in daily) {
@@ -592,11 +654,12 @@ function renderOrganic() {
   }).join("") + "<span><span class=\"k line\" style=\"background:repeating-linear-gradient(90deg,#8c959f 0 3px,transparent 3px 6px)\"></span>release 发版</span>";
   if (!hist.length) return;
   var lastDate = hist[hist.length - 1].date;
-  var rows = "", missing = [];
+  var rows = "", missing = [], dailyByPkg = {};
   for (i = 0; i < PACKAGES.length; i++) {
     var pkg = PACKAGES[i];
     var daily = classifyDaily(pkg);
     if (!daily) { missing.push(pkg.short); continue; }
+    dailyByPkg[pkg.id] = daily;
     var w7 = windowSum(daily, lastDate, 7), w14 = windowSum(daily, lastDate, 14);
     var days14 = Math.min(14, Object.keys(daily).length);
     rows += "<tr><td><span style=\"display:inline-block;width:10px;height:10px;border-radius:3px;background:" + pkg.color + ";margin-right:7px\"></span>" + esc(pkg.short) + "</td>" +
@@ -614,6 +677,8 @@ function renderOrganic() {
     drawBreakdown(div, pkg, daily);
     charts.appendChild(div);
   }
+  $("organicCum").innerHTML = "";
+  drawOrganicCumulative($("organicCum"), $("organicCumLegend"), dailyByPkg);
   if (rows) {
     sum.innerHTML = "<div class=\"otablewrap\"><table class=\"otable\"><thead><tr><th>Package</th><th>Organic 7d<br>近7天自然</th><th>Organic 14d<br>近14天自然</th><th>Organic / day<br>自然日均 (14d)</th><th>All downloads 14d<br>近14天总下载</th><th>Organic share<br>自然占比</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
   }

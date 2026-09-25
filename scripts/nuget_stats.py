@@ -66,11 +66,18 @@ SHORT_NAMES = {
 }
 
 SEARCH_URL = "https://azuresearch-usnc.nuget.org/query"
+REGISTRATION_URL = "https://api.nuget.org/v3/registration5-semver1/"
 REQUEST_TIMEOUT = 30
+
+# A version's downloads within this many days of publishing count as a release
+# burst (mirrors / scanners fetch every new version). Keep in sync with
+# BURST_DAYS in stats/index.html.
+BURST_DAYS = 4
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HISTORY_PATH = REPO_ROOT / "stats" / "history.jsonl"
 CHART_PATH = REPO_ROOT / "charts" / "nuget-downloads.png"
+ORGANIC_CHART_PATH = REPO_ROOT / "charts" / "nuget-organic.png"
 
 
 # --------------------------------------------------------------------------
@@ -106,6 +113,23 @@ def fetch_package(package_id: str) -> dict:
         "latestVersion": hit.get("version"),
         "versions": versions,
     }
+
+
+def fetch_publish_dates(package_id: str) -> dict:
+    """{version: "YYYY-MM-DD"} from the registration API (unlisted versions skipped)."""
+    index = _http_get_json(REGISTRATION_URL + package_id.lower() + "/index.json")
+    dates = {}
+    for page in index.get("items", []):
+        items = page.get("items")
+        if items is None:  # large packages page their versions out
+            items = _http_get_json(page["@id"]).get("items", [])
+        for it in items:
+            ce = it.get("catalogEntry", {})
+            published = ce.get("published", "")
+            # unlisted versions report a 1900-01-01 publish date
+            if ce.get("version") and published[:4] > "1900":
+                dates[ce["version"]] = published[:10]
+    return dates
 
 
 # --------------------------------------------------------------------------
@@ -252,6 +276,122 @@ def render_chart(history: list, out_path: Path) -> None:
     print("  chart -> " + str(out_path))
 
 
+def _days_between(a: str, b: str) -> int:
+    return (datetime.strptime(b, "%Y-%m-%d") - datetime.strptime(a, "%Y-%m-%d")).days
+
+
+def classify_daily(history: list, pkg: str, pub: dict) -> dict:
+    """Split each daily delta into organic / release burst / old-version sweep.
+
+    Mirrors classifyDaily() in stats/index.html:
+      burst   = downloads to a version within BURST_DAYS of its publish date
+      sweep   = downloads to superseded versions; when a sweep touches every old
+                version at once, the same floor is removed from the latest too
+      organic = what remains on the latest version published by that day
+    Returns {date: {"organic": n, "burst": n, "sweep": n}}.
+    """
+    out = {}
+    prev = None
+    for h in history:
+        p = h.get("packages", {}).get(pkg)
+        if not p or not p.get("versions"):
+            continue
+        if prev is not None:
+            date = h["date"]
+            released = [v for v in p["versions"] if v in pub and pub[v] <= date]
+            latest = max(released, key=lambda v: (pub[v], _semver_key(v))) if released else None
+            row = {"organic": 0, "burst": 0, "sweep": 0}
+            latest_delta, old = 0, []
+            for v, count in p["versions"].items():
+                d = max(0, count - prev["versions"].get(v, 0))
+                age = _days_between(pub[v], date) if v in pub else None
+                if age is not None and 0 <= age <= BURST_DAYS:
+                    row["burst"] += d
+                elif v == latest:
+                    latest_delta = d
+                else:
+                    row["sweep"] += d
+                    old.append(d)
+            floor = min(old) if len(old) >= 2 and all(x > 0 for x in old) else 0
+            row["organic"] = max(0, latest_delta - floor)
+            row["sweep"] += latest_delta - row["organic"]
+            rest = max(0, p["total"] - prev["total"]) - sum(row.values())
+            if rest > 0:
+                row["sweep"] += rest
+            out[date] = row
+        prev = p
+    return out
+
+
+def render_organic_chart(history: list, out_path: Path) -> None:
+    """Cumulative *organic* downloads per package since tracking began.
+
+    Needs version publish dates from the registration API; if they can't be
+    fetched the chart is skipped (the total-downloads chart still renders).
+    """
+    latest = history[-1]
+    pkgs = [p for p in PACKAGES if p in latest.get("packages", {})]
+    dates = [h["date"] for h in history]
+
+    series = {}
+    for pkg in pkgs:
+        try:
+            pub = fetch_publish_dates(pkg)
+        except Exception as exc:
+            print("  ! organic chart skipped: publish dates for " + pkg + ": " + str(exc), file=sys.stderr)
+            return
+        daily = classify_daily(history, pkg, pub)
+        if not daily:
+            continue
+        running, points = 0, []
+        for d in dates:
+            if d in daily:
+                running += daily[d]["organic"]
+                points.append(running)
+            else:
+                # before the package's first delta there is nothing to accumulate
+                points.append(running if points and points[-1] is not None else None)
+        series[pkg] = points
+
+    fig = plt.figure(figsize=(11.0, 5.4))
+    fig.patch.set_facecolor("white")
+    ax = fig.add_axes([0.07, 0.27, 0.915, 0.56])
+    for pkg, points in series.items():
+        ax.plot(dates, points, marker="o", markersize=4, linewidth=1.8,
+                color=_color(pkg, pkgs), label=pkg + " (" + format(points[-1] or 0, ",") + ")")
+    ax.set_title("Cumulative organic downloads since " + dates[0]
+                 + " (release bursts & mirror sweeps removed; heuristic)", fontsize=11)
+    ax.set_xlabel("UTC date (snapshot day)", fontsize=9)
+    ax.set_ylabel("Organic downloads (cumulative)", fontsize=9)
+    ax.tick_params(labelsize=8.5)
+    step = max(1, -(-len(dates) // 8))
+    ticks = list(range(0, len(dates), step))
+    if ticks[-1] != len(dates) - 1:
+        if len(dates) - 1 - ticks[-1] < step / 2:
+            ticks.pop()
+        ticks.append(len(dates) - 1)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([dates[i] for i in ticks])
+    ax.set_ylim(bottom=0)
+    ax.yaxis.set_major_formatter(FuncFormatter(_fmt_int))
+    ax.grid(linewidth=0.4, alpha=0.5)
+    ax.legend(fontsize=9, loc="upper center", bbox_to_anchor=(0.5, -0.17),
+              ncol=3, frameon=False)
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+
+    fig.suptitle("NuGet organic downloads — memoryfraction", fontsize=14, weight="bold", y=0.98)
+    fig.text(0.985, 0.01,
+             "organic = downloads to the latest version > " + str(BURST_DAYS)
+             + " days after release, minus mirror-sweep floor · updated " + latest["date"] + " (UTC)",
+             ha="right", fontsize=7.5, color="#777")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, facecolor="white")
+    plt.close(fig)
+    print("  organic chart -> " + str(out_path))
+
+
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
@@ -275,6 +415,7 @@ def main() -> None:
             print("  note: " + str(len(rec["errors"])) + " package(s) failed this run", file=sys.stderr)
 
     render_chart(history, CHART_PATH)
+    render_organic_chart(history, ORGANIC_CHART_PATH)
     print("done.")
 
 
