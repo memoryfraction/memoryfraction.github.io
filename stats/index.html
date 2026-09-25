@@ -63,6 +63,14 @@ header .sub{color:var(--muted);margin:0 0 18px}
 .note code{background:#eef2f6;padding:1px 6px;border-radius:5px;font-size:12px}
 footer{color:var(--muted);font-size:12px;margin-top:26px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 a{color:var(--accent)}
+.chart .rel{stroke:#8c959f;stroke-width:1;stroke-dasharray:3 3}
+.chart .rellbl{font-size:9.5px;fill:#6e7781}
+.otable{width:100%;border-collapse:collapse;font-size:12.5px;margin:4px 0 12px;font-variant-numeric:tabular-nums}
+.otable th,.otable td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.otable th:first-child,.otable td:first-child{text-align:left;white-space:normal}
+.otable th{color:var(--muted);font-weight:600;font-size:11.5px}
+.otable td b{font-size:13.5px}
+.otablewrap{overflow-x:auto}
 .errbox{background:#fff8f7;border:1px solid #ffcecb;border-radius:10px;padding:12px 14px;color:#a40e26;font-size:13px;margin-bottom:16px;display:none}
 </style>
 </head>
@@ -92,6 +100,17 @@ a{color:var(--accent)}
     <h2>Period downloads + cumulative trend</h2>
     <p class="hint">Bars = downloads in the selected period (day / ISO-week / calendar-month / calendar-year); in Year view each bar is stacked by version share; line = cumulative lifetime total at period end. 柱 = 当期下载量（年份视图柱内按版本分段叠加）；线 = 期末累计总量。</p>
     <div id="charts"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Estimated organic vs. automated downloads 自然下载估计</h2>
+    <p class="hint">Each day's delta is split by version against its nuget.org publish date: <b>release burst</b> = downloads to a version within <span class="bd"></span> days of publishing (mirrors / scanners / cache warmers fetch every new version); <b>old-version sweep</b> = downloads to superseded versions, plus the same floor subtracted from the latest when a sweep hits every old version at once; <b>organic</b> = what remains on the current latest version. A heuristic estimate, not ground truth — it cannot tell a human from a CI restore. Dashed lines = releases. HealthData.Interop.* components are pulled in by the Fhir meta-package, so don't add them to Fhir.<br>按版本拆分每日增量：<b>发版脉冲</b> = 版本发布后 <span class="bd"></span> 天内的下载（镜像 / 扫描器会抓取每个新版本）；<b>旧版本扫描</b> = 对已被取代版本的下载（所有旧版本同时 +1 时，最新版本也扣除同样的底数）；<b>自然</b> = 最新版本上剩余的下载。启发式估计，无法区分真人与 CI 还原。虚线 = 发版。</p>
+    <div id="organicSummary"></div>
+    <h3 style="font-size:14px;margin:4px 0 6px">Cumulative organic downloads 累计自然下载 <span style="color:#8c959f;font-weight:400;font-size:12px">daily, all packages 按日，全部包</span></h3>
+    <div class="legend" id="organicCumLegend"></div>
+    <div id="organicCum"></div>
+    <div class="legend" id="organicLegend"></div>
+    <div id="organicCharts"></div>
   </div>
 
   <div class="panel">
@@ -138,7 +157,12 @@ var PACKAGES = [
 ];
 var SEARCH_URL = "https://azuresearch-usnc.nuget.org/query";
 var HISTORY_URL = "history.jsonl";
+var REG_URL = "https://api.nuget.org/v3/registration5-semver1/";
+// a version's downloads within this many days of publishing count as a release burst
+// (calibrated on this history: new versions take ~35-65 hits within 1-4 days)
+var BURST_DAYS = 4;
 var hist = [];
+var published = {};  // package id -> { version: "YYYY-MM-DD" publish date }
 var liveData = {};
 var granularity = "day";
 var lastSnapshot = null;
@@ -259,6 +283,80 @@ function perVersionYearSums(pkg) {
   return out;
 }
 
+function daysBetween(a, b) {
+  return Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 86400000);
+}
+
+// Split each daily delta into organic / release burst / old-version sweep.
+// Returns { date: { organic, burst, sweep } } or null if publish dates are unknown.
+function classifyDaily(pkg) {
+  var pub = published[pkg.id];
+  if (!pub) return null;
+  var out = {};
+  var prev = null;
+  for (var i = 0; i < hist.length; i++) {
+    var h = hist[i];
+    var p = (h.packages || {})[pkg.id];
+    if (!p || !p.versions) continue;
+    if (prev) {
+      var latest = null;
+      for (var v in p.versions) {
+        if (!pub[v] || pub[v] > h.date) continue;
+        if (latest === null || pub[v] > pub[latest] || (pub[v] === pub[latest] && semverCompare(v, latest) > 0)) latest = v;
+      }
+      var row = { organic: 0, burst: 0, sweep: 0 };
+      var latestDelta = 0, old = [];
+      for (v in p.versions) {
+        var d = Math.max(0, p.versions[v] - (prev.versions[v] || 0));
+        var age = pub[v] ? daysBetween(pub[v], h.date) : null;
+        if (age !== null && age >= 0 && age <= BURST_DAYS) row.burst += d;
+        else if (v === latest) latestDelta = d;
+        else { row.sweep += d; old.push(d); }
+      }
+      // a mirror sweep touches every version at once, the latest included
+      var floor = 0;
+      if (old.length >= 2 && old.every(function (x) { return x > 0; })) floor = Math.min.apply(null, old);
+      row.organic = Math.max(0, latestDelta - floor);
+      row.sweep += latestDelta - row.organic;
+      var rest = Math.max(0, p.total - prev.total) - (row.organic + row.burst + row.sweep);
+      if (rest > 0) row.sweep += rest;
+      out[h.date] = row;
+    }
+    prev = p;
+  }
+  return out;
+}
+
+// Releases whose publish date falls in a bucket, keyed by bucket key.
+function releasesByBucket(pkg, keys) {
+  var pub = published[pkg.id] || {};
+  var out = {};
+  for (var v in pub) {
+    var k = bucketKey(pub[v], granularity);
+    if (keys.indexOf(k) < 0) continue;
+    (out[k] = out[k] || []).push(v);
+  }
+  for (k in out) out[k].sort(semverCompare);
+  return out;
+}
+
+function drawReleaseMarkers(svg, pkg, keys, xAt, T, ih) {
+  var rel = releasesByBucket(pkg, keys);
+  for (var k in rel) {
+    var x = xAt(keys.indexOf(k));
+    svg.appendChild(svgEl("line", { x1: x, y1: T, x2: x, y2: T + ih, class: "rel" }));
+    var vs = rel[k];
+    // right-edge markers label leftwards so they stay inside the plot
+    var flip = x > xAt(keys.length - 1) - 40;
+    var lbl = svgEl("text", { x: flip ? x - 3 : x + 3, y: T + 22, "text-anchor": flip ? "end" : "start", class: "rellbl" });
+    lbl.textContent = "v" + vs[vs.length - 1] + (vs.length > 1 ? " +" + (vs.length - 1) : "");
+    var tip = svgEl("title", {});
+    tip.textContent = "released 发版: " + vs.map(function (x) { return x + " (" + published[pkg.id][x] + ")"; }).join(", ");
+    lbl.appendChild(tip);
+    svg.appendChild(lbl);
+  }
+}
+
 function svgEl(tag, attrs) {
   var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
   for (var k in attrs) e.setAttribute(k, attrs[k]);
@@ -366,6 +464,8 @@ function drawChart(container, pkg) {
     }
   }
 
+  drawReleaseMarkers(svg, pkg, s.keys, xAt, T, ih);
+
   var linePts = [];
   for (i = 0; i < n; i++) {
     if (s.cumulative[i] !== null) linePts.push({ x: xAt(i), y: yCum(s.cumulative[i]), i: i });
@@ -410,6 +510,180 @@ function renderCharts() {
       drawChart(div, pkg);
       box.appendChild(div);
     })(PACKAGES[i]);
+  }
+}
+
+var KINDS = [
+  { k: "organic", label: "organic 自然" },
+  { k: "burst", label: "release burst 发版脉冲", fill: "#b6c2cf" },
+  { k: "sweep", label: "old-version sweep 旧版本扫描", fill: "#dde3ea" }
+];
+
+function drawBreakdown(container, pkg, daily) {
+  var buckets = {};
+  for (var date in daily) {
+    var bk = bucketKey(date, granularity);
+    var b = buckets[bk] || (buckets[bk] = { organic: 0, burst: 0, sweep: 0 });
+    b.organic += daily[date].organic; b.burst += daily[date].burst; b.sweep += daily[date].sweep;
+  }
+  var keys = Object.keys(buckets).sort();
+  var W = 560, H = 200, L = 60, R = 20, T = 16, B = 34;
+  var iw = W - L - R, ih = H - T - B, n = keys.length;
+  var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", "aria-label": pkg.short + " organic vs automated downloads" });
+  if (!n) {
+    var t = svgEl("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "none" });
+    t.textContent = "need at least 2 snapshots";
+    svg.appendChild(t);
+    container.appendChild(svg);
+    return;
+  }
+  var max = 0;
+  for (var i = 0; i < n; i++) { var bb = buckets[keys[i]]; max = Math.max(max, bb.organic + bb.burst + bb.sweep); }
+  var top = niceCeil(Math.max(max * 1.1, 1));
+  function xAt(j) { return L + (iw / n) * j + (iw / n) / 2; }
+  for (var gi = 0; gi <= 4; gi++) {
+    var y = T + (ih / 4) * gi;
+    svg.appendChild(svgEl("line", { x1: L, y1: y, x2: W - R, y2: y, class: "grid" }));
+    var lt = svgEl("text", { x: L - 8, y: y + 3.5, "text-anchor": "end", class: "tick" });
+    lt.textContent = fmt(top - (top / 4) * gi);
+    svg.appendChild(lt);
+  }
+  svg.appendChild(svgEl("line", { x1: L, y1: T + ih, x2: W - R, y2: T + ih, class: "axis" }));
+  var bw = Math.min((iw / n) * 0.62, 46);
+  var showEvery = Math.max(1, Math.ceil(n / 8));
+  for (i = 0; i < n; i++) {
+    var row = buckets[keys[i]];
+    var yCur = T + ih;
+    for (var ki = 0; ki < KINDS.length; ki++) {
+      var amt = row[KINDS[ki].k];
+      if (amt <= 0) continue;
+      var h = (amt / top) * ih;
+      var r = svgEl("rect", { x: xAt(i) - bw / 2, y: yCur - h, width: bw, height: h, fill: KINDS[ki].fill || pkg.color });
+      var tip = svgEl("title", {});
+      tip.textContent = bucketLabel(keys[i], granularity) + "\norganic 自然: " + fmt(row.organic) + "\nrelease burst 发版脉冲: " + fmt(row.burst) + "\nold-version sweep 旧版本扫描: " + fmt(row.sweep);
+      r.appendChild(tip);
+      svg.appendChild(r);
+      yCur -= h;
+    }
+    if (i % showEvery === 0 || i === n - 1) {
+      var xt = svgEl("text", { x: xAt(i), y: T + ih + 16, "text-anchor": "middle", class: "tick" });
+      xt.textContent = (granularity === "day" || granularity === "week") ? keys[i].slice(5) : keys[i];
+      svg.appendChild(xt);
+    }
+  }
+  drawReleaseMarkers(svg, pkg, keys, xAt, T, ih);
+  container.appendChild(svg);
+}
+
+// One line per package: running sum of organic downloads, daily resolution.
+function drawOrganicCumulative(container, legend, dailyByPkg) {
+  var dates = hist.map(function (h) { return h.date; });
+  var lines = [], max = 0;
+  for (var i = 0; i < PACKAGES.length; i++) {
+    var pkg = PACKAGES[i], daily = dailyByPkg[pkg.id];
+    if (!daily) continue;
+    var run = 0, pts = [], started = false;
+    for (var j = 0; j < dates.length; j++) {
+      if (daily[dates[j]]) { run += daily[dates[j]].organic; started = true; }
+      pts.push(started ? run : null);
+    }
+    max = Math.max(max, run);
+    lines.push({ pkg: pkg, pts: pts, total: run });
+  }
+  legend.innerHTML = lines.map(function (l) {
+    return "<span><span class=\"k line\" style=\"background:" + l.pkg.color + "\"></span>" + esc(l.pkg.short) + " <b style=\"color:var(--ink)\">" + fmt(l.total) + "</b></span>";
+  }).join("");
+  var W = 560, H = 230, L = 60, R = 20, T = 12, B = 34;
+  var iw = W - L - R, ih = H - T - B, n = dates.length;
+  var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img", "aria-label": "cumulative organic downloads, all packages" });
+  var top = niceCeil(Math.max(max * 1.1, 1));
+  function xAt(k) { return n > 1 ? L + (iw * k) / (n - 1) : L + iw / 2; }
+  function yAt(v) { return T + ih - (v / top) * ih; }
+  for (var gi = 0; gi <= 4; gi++) {
+    var y = T + (ih / 4) * gi;
+    svg.appendChild(svgEl("line", { x1: L, y1: y, x2: W - R, y2: y, class: "grid" }));
+    var lt = svgEl("text", { x: L - 8, y: y + 3.5, "text-anchor": "end", class: "tick" });
+    lt.textContent = fmt(top - (top / 4) * gi);
+    svg.appendChild(lt);
+  }
+  svg.appendChild(svgEl("line", { x1: L, y1: T + ih, x2: W - R, y2: T + ih, class: "axis" }));
+  var showEvery = Math.max(1, Math.ceil(n / 8));
+  for (j = 0; j < n; j++) {
+    if (j % showEvery !== 0 && j !== n - 1) continue;
+    var xt = svgEl("text", { x: xAt(j), y: T + ih + 16, "text-anchor": "middle", class: "tick" });
+    xt.textContent = dates[j].slice(5);
+    svg.appendChild(xt);
+  }
+  lines.forEach(function (l) {
+    var d = "";
+    for (var k = 0; k < n; k++) {
+      if (l.pts[k] === null) continue;
+      d += (d ? "L" : "M") + xAt(k).toFixed(1) + " " + yAt(l.pts[k]).toFixed(1);
+    }
+    if (d) svg.appendChild(svgEl("path", { d: d, class: "cum", stroke: l.pkg.color }));
+    for (k = 0; k < n; k++) {
+      if (l.pts[k] === null) continue;
+      var dot = svgEl("circle", { cx: xAt(k), cy: yAt(l.pts[k]), r: 2.6, class: "pt", fill: l.pkg.color });
+      var tip = svgEl("title", {});
+      tip.textContent = l.pkg.short + " · " + dates[k] + "\norganic cumulative 累计自然: " + fmt(l.pts[k]) +
+        (dailyByPkg[l.pkg.id][dates[k]] ? "\norganic that day 当日自然: " + fmt(dailyByPkg[l.pkg.id][dates[k]].organic) : "");
+      dot.appendChild(tip);
+      svg.appendChild(dot);
+    }
+  });
+  container.appendChild(svg);
+}
+
+function windowSum(daily, lastDate, days) {
+  var s = { organic: 0, burst: 0, sweep: 0 };
+  for (var date in daily) {
+    if (daysBetween(date, lastDate) >= days) continue;
+    s.organic += daily[date].organic; s.burst += daily[date].burst; s.sweep += daily[date].sweep;
+  }
+  s.total = s.organic + s.burst + s.sweep;
+  return s;
+}
+
+function renderOrganic() {
+  var bds = document.querySelectorAll(".bd");
+  for (var i = 0; i < bds.length; i++) bds[i].textContent = BURST_DAYS;
+  var sum = $("organicSummary"), charts = $("organicCharts"), leg = $("organicLegend");
+  sum.innerHTML = ""; charts.innerHTML = "";
+  leg.innerHTML = KINDS.map(function (k) {
+    return "<span><span class=\"k\" style=\"background:" + (k.fill || "#59636e") + "\"></span>" + esc(k.label) + (k.fill ? "" : " (package color 包颜色)") + "</span>";
+  }).join("") + "<span><span class=\"k line\" style=\"background:repeating-linear-gradient(90deg,#8c959f 0 3px,transparent 3px 6px)\"></span>release 发版</span>";
+  if (!hist.length) return;
+  var lastDate = hist[hist.length - 1].date;
+  var rows = "", missing = [], dailyByPkg = {};
+  for (i = 0; i < PACKAGES.length; i++) {
+    var pkg = PACKAGES[i];
+    var daily = classifyDaily(pkg);
+    if (!daily) { missing.push(pkg.short); continue; }
+    dailyByPkg[pkg.id] = daily;
+    var w7 = windowSum(daily, lastDate, 7), w14 = windowSum(daily, lastDate, 14);
+    var days14 = Math.min(14, Object.keys(daily).length);
+    rows += "<tr><td><span style=\"display:inline-block;width:10px;height:10px;border-radius:3px;background:" + pkg.color + ";margin-right:7px\"></span>" + esc(pkg.short) + "</td>" +
+      "<td><b>" + fmt(w7.organic) + "</b></td>" +
+      "<td><b>" + fmt(w14.organic) + "</b></td>" +
+      "<td>" + (days14 ? (w14.organic / days14).toFixed(1) : "—") + "</td>" +
+      "<td>" + fmt(w14.total) + "</td>" +
+      "<td>" + (w14.total ? Math.round(100 * w14.organic / w14.total) + "%" : "—") + "</td></tr>";
+    var div = document.createElement("div");
+    div.style.marginBottom = "14px";
+    var h = document.createElement("h3");
+    h.style.cssText = "font-size:14px;margin:0 0 6px";
+    h.innerHTML = "<span style=\"display:inline-block;width:10px;height:10px;border-radius:3px;background:" + pkg.color + ";margin-right:8px\"></span>" + esc(pkg.short) + " <span style=\"color:#8c959f;font-weight:400;font-size:12px\">" + esc(pkg.id) + "</span>";
+    div.appendChild(h);
+    drawBreakdown(div, pkg, daily);
+    charts.appendChild(div);
+  }
+  $("organicCum").innerHTML = "";
+  drawOrganicCumulative($("organicCum"), $("organicCumLegend"), dailyByPkg);
+  if (rows) {
+    sum.innerHTML = "<div class=\"otablewrap\"><table class=\"otable\"><thead><tr><th>Package</th><th>Organic 7d<br>近7天自然</th><th>Organic 14d<br>近14天自然</th><th>Organic / day<br>自然日均 (14d)</th><th>All downloads 14d<br>近14天总下载</th><th>Organic share<br>自然占比</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+  }
+  if (missing.length) {
+    sum.innerHTML += "<div style=\"color:#a40e26;font-size:12.5px;margin-bottom:8px\">Publish dates unavailable (registration API fetch failed) for: " + esc(missing.join(", ")) + " — cannot classify. 发版日期获取失败，无法拆分。</div>";
   }
 }
 
@@ -523,7 +797,30 @@ function loadAll() {
     });
   }));
 
-  return Promise.all([pHist, pLive]).then(function (res) {
+  // publish dates only change on a release; fetch once per page load, failures are non-fatal
+  var pReg = Promise.all(PACKAGES.map(function (p) {
+    if (published[p.id]) return null;
+    return fetch(REG_URL + p.id.toLowerCase() + "/index.json").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (j) {
+      return Promise.all((j.items || []).map(function (page) {
+        return page.items ? page : fetch(page["@id"]).then(function (r) { return r.json(); });
+      }));
+    }).then(function (pages) {
+      var map = {};
+      pages.forEach(function (page) {
+        (page.items || []).forEach(function (it) {
+          var ce = it.catalogEntry || {};
+          // unlisted versions report a 1900-01-01 publish date
+          if (ce.version && ce.published && ce.published.slice(0, 4) > "1900") map[ce.version] = ce.published.slice(0, 10);
+        });
+      });
+      published[p.id] = map;
+    }).catch(function () { /* renderOrganic reports the missing package */ });
+  }));
+
+  return Promise.all([pHist, pLive, pReg]).then(function (res) {
     liveData = {};
     res[1].forEach(function (r, idx) {
       if (r && !(r instanceof Error)) liveData[PACKAGES[idx].id] = r;
@@ -532,6 +829,7 @@ function loadAll() {
     lastSnapshot = hist.length ? hist[hist.length - 1] : null;
     renderCards();
     renderCharts();
+    renderOrganic();
     renderVersions();
     var now = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
     if (hist.length) {
@@ -548,7 +846,7 @@ function loadAll() {
     }
   }).catch(function (e) {
     hist = [];
-    renderCards(); renderCharts(); renderVersions();
+    renderCards(); renderCharts(); renderOrganic(); renderVersions();
     showErr("Failed to load data: " + e.message + " — opening this page from the GitHub Pages site (https://memoryfraction.github.io/) will work; a local file:// open cannot fetch relative data.");
     setStatus("err", "load failed");
   });
@@ -559,6 +857,7 @@ function setGranularity(g) {
   var btns = document.querySelectorAll("#seg button");
   for (var i = 0; i < btns.length; i++) btns[i].className = (btns[i].getAttribute("data-g") === g) ? "active" : "";
   renderCharts();
+  renderOrganic();
 }
 
 document.addEventListener("DOMContentLoaded", function () {

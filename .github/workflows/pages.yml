@@ -37,7 +37,7 @@ jobs:
           cp stats/index.html build/stats/index.html
           cp stats/history.jsonl build/history.jsonl
           cp stats/history.jsonl build/stats/history.jsonl
-          cp charts/nuget-downloads.png build/charts/nuget-downloads.png
+          cp charts/*.png build/charts/
           cp legacy/memoryfraction-index.html build/memoryfraction/index.html
 
       - uses: actions/configure-pages@v5
